@@ -1,0 +1,110 @@
+---
+title: "Homework 1 Exercise 2 and 3"
+author: "Ma Jingchun, 2020111235"
+output:
+  html_document:
+  pdf_document: 
+    latex_engine: xelatex
+---
+<br><br>
+
+We saw that the cv.glm() function can be used in order to compute the LOOCV test error estimate. Alternatively, one could compute those quantities using just the glm() and predict.glm() functions, and a for loop. You will now take this approach in order to compute the LOOCV error for a simple logistic regression model on the Weekly data set
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+library(ISLR2)
+```
+
+<br><br>
+
+**1. Fit a logistic regression model that predicts Direction using Lag1 and Lag2**
+```{r}
+summary(Weekly)
+set.seed(1)
+attach(Weekly)
+
+glm.fit = glm(Direction ~ Lag1 + Lag2, data = Weekly, family = binomial)
+summary(glm.fit)
+```
+
+ 
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
+**2. Fit a logistic regression model that predicts Direction using Lag1 and Lag2 using all but the first observation**
+```{r}
+glm.fit = glm(Direction ~ Lag1 + Lag2, data = Weekly[-1, ], family = binomial)
+summary(glm.fit)
+```
+
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
+**3. Use the model from (b) to predict the direction of the first observation. You can do this by predicting that the first observation will go up if P(Direction=“Up”|Lag1,Lag2) > 0.5. Was this observation correctly classified?**
+```{r}
+predict.glm(glm.fit, Weekly[1, ], type = "response") > 0.5
+```
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
+**4. Write a for loop from i=1 to i=n, where n is the number of observations in the data set, that performs each of the following steps:**
+
++ Fit a logistic regression model using all but the ith observation to predict Direction using Lag1 and Lag2
+```{r}
+for (i in 1:(dim(Weekly)[1])) {
+  glm.fit = glm(Direction ~ Lag1 + Lag2, data = Weekly[-i, ], family = binomial)
+}
+```
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
++ Compute the posterior probability of the market moving up for the ith observation
+```{r}
+for (i in 1:(dim(Weekly)[1])) {
+  glm.fit = glm(Direction ~ Lag1 + Lag2, data = Weekly[-i, ], family = binomial)
+  is_up = predict.glm(glm.fit, Weekly[i, ], type = "response") > 0.5
+}
+```
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
++ Use the posterior probability for the ith observation in order to predict whether or not the market moves up
+```{r}
+for (i in 1:(dim(Weekly)[1])) {
+  glm.fit = glm(Direction ~ Lag1 + Lag2, data = Weekly[-i, ], family = binomial)
+  is_up = predict.glm(glm.fit, Weekly[i, ], type = "response") > 0.5
+  is_true_up = Weekly[i, ]$Direction == "Up"
+}
+```
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
++ Determine whether or not an error was made in predicting the direction for the ith observation. If an error was made, then indicate this as a 1, and otherwise indicate it as a 0
+```{r}
+count = rep(0, dim(Weekly)[1])
+for (i in 1:(dim(Weekly)[1])) {
+  glm.fit = glm(Direction ~ Lag1 + Lag2, data = Weekly[-i, ], family = binomial)
+  is_up = predict.glm(glm.fit, Weekly[i, ], type = "response") > 0.5
+  is_true_up = Weekly[i, ]$Direction == "Up"
+  if (is_up != is_true_up) 
+    count[i] = 1
+}
+sum(count)
+```
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
+**8. Take the average of the n numbers obtained in (d) iv in order to obtain the LOOCV estimate for the test error. Comment on the results**
+```{r}
+mean(count)
+```
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
+
+

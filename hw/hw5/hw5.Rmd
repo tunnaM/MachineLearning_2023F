@@ -1,0 +1,316 @@
+---
+title: "Homework 4&5"
+author: "Ma Jingchun, 2020111235"
+output:
+  html_document:
+  pdf_document: 
+    latex_engine: xelatex
+---
+<br><br>
+
+# Homework 4
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+library(ISLR2)
+library(tree)
+library(gbm)
+library(glmnet)
+library(randomForest)
+```
+
+
+**1.This problem involves the OJ data set which is part of the ISLR2 package.**
+
+**a. Create a training set containing a random sample of 800 observations, and a test set containing the remaining observations.**
+
+```{r}
+set.seed(1)
+train = sample(1:nrow(OJ), 800)
+oj.train = OJ[train,]
+oj.test = OJ[-train,]
+oj.train.y = OJ[train,"Purchase"]
+oj.test.y = OJ[-train,"Purchase"]
+```
+ 
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**b. Fit a tree to the training data, with Purchase as the response and the other variables as predictors. Use the summary() function to produce summary statistics about the tree, and describe the results obtained. What is the training error rate? How many terminal nodes does the tree have?**
+```{r}
+tree.oj = tree(Purchase ~ ., OJ, subset=train)
+summary(tree.oj)
+```
+use 5 predictors to split the tree.
+
+training error rate: Misclassification rate: 15.88% 
+
+terminal nodes: 9
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**c. Type in the name of the tree object in order to get a detailed text output. Pick one of the terminal nodes, and interpret the information displayed.**
+```{r}
+tree.oj
+```
+
+Interpret one terminal node:
+
+"8) LoyalCH < 0.0356415 59   10.14 MM ( 0.01695 0.98305 ) *"
+
+"9) LoyalCH > 0.0356415 118  116.40 MM ( 0.19492 0.80508 ) *"
+
+for branch 8:
+
+59 - Number observations in that branch
+
+10.14 - Deviance
+
+MM - Predicted class
+
+( 0.01695 0.98305 ) - (Prob CH, Prob MM)
+
+for branch 9:
+
+118 - Number observations in that branch
+
+116.40 - Deviance
+
+MM - Predicted class
+
+( 0.19492 0.80508 ) - (Prob CH, Prob MM)
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**d. Create a plot of the tree, and interpret the results.**
+```{r}
+{plot(tree.oj)
+text(tree.oj, pretty=0)
+}
+```
+
+There are 9 terminal nodes. And at least 1 redundant node.
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**e. Predict the response on the test data, and produce a confusion matrix comparing the test labels to the predicted test labels. What is the test error rate?**
+```{r}
+tree.pred = predict(tree.oj, oj.test, type="class")
+
+yhat = predict(tree.oj, newdata = OJ[-train ,], type = "class")
+oj.test.y = OJ[-train, "Purchase"] 
+table(yhat, oj.test.y)
+```
+
+test error rate :(160+64)/270 = 0.8296296
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**f. Apply the cv.tree() function to the training set in order to determine the optimal tree size.**
+```{r}
+cv.oj=cv.tree(tree.oj, FUN=prune.misclass)
+cv.oj
+```
+The optimal number of terminal nodes is 7. 
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**g. Produce a plot with tree size on the x-axis and cross-validated classification error rate on the y-axis.**
+```{r}
+plot(cv.oj$size, cv.oj$dev, type='b', xlab="Tree Size", ylab="Classification Error")
+
+par(mfrow=c(1,2))
+plot(cv.oj$size, cv.oj$dev, type="b")
+plot(cv.oj$k,cv.oj$dev, type="b")
+
+```
+
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**h. Which tree size corresponds to the lowest cross-validated classification error rate?**
+
+size 7 corresponds to the lowest cross-validated classification error rate
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**i. Produce a pruned tree corresponding to the optimal tree size obtained using cross-validation. If cross-validation does not lead to selection of a pruned tree, then create a pruned tree with five terminal nodes.**
+
+```{r}
+prune.oj=prune.tree(tree.oj, best=7)
+{plot(prune.oj)
+text(prune.oj, pretty=0)
+}
+```
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**j. Compare the training error rates between the pruned and unpruned trees. Which is higher?**
+
+```{r}
+train.predict = predict(tree.oj, newdata = oj.train, type="class")
+
+table(oj.train$Purchase, train.predict)
+```
+
+training error rates = (450+223)/800 = 0.84125
+
+```{r}
+train.pruned.predict = predict(prune.oj, newdata = oj.train, type="class")
+table(oj.train$Purchase, train.pruned.predict)
+```
+
+training error rates = (441+229)/800 = 0.8375
+
+unpruned is better because of overfitting
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**k. Compare the test error rates between the pruned and unpruned trees. Which is higher?**
+
+```{r}
+test.pruned.predict = predict(prune.oj, newdata = oj.test, type="class")
+table(oj.test$Purchase, test.pruned.predict)
+```
+
+test error rates = (160 + 66)/270 = 0.837037 > 0.8296296
+
+pruned gives a better test error rate.
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**2. We now use boosting to predict Salary in the Hitters data set.**
+
+**a. Remove the observations for whom the salary information is unknown, and then log-transform the salaries.**
+
+```{r}
+Hitters = na.omit(Hitters)
+Hitters$Salary <- log(Hitters$Salary)
+```
+ 
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**b. Create a training set consisting of the first 200 observations, and a test set consisting of the remaining observations.**
+```{r}
+n = nrow(Hitters)
+train = 1:200
+test = 201:n
+train_Hit <- Hitters[train, ]
+test_Hit <- Hitters[test, ]
+```
+
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**c. Perform boosting on the training set with 1,000 trees for a range of values of the shrinkage parameter λ. Produce a plot with different shrinkage values on the x-axis and the corresponding training set MSE on the y-axis.**
+```{r}
+lambda_vals <- seq(from=0.001, to=1, by=0.05)
+train_error <- rep(NA, length(lambda_vals))
+for (l in 1:length(lambda_vals)) {
+  boost_Hitt <- gbm(Salary~., 
+                  data=train_Hit, 
+                  distribution = "gaussian",
+                  n.trees = 1000,
+                  shrinkage=lambda_vals[l])
+  train_pred <- predict(boost_Hitt, train_Hit, n.trees=1000)
+  train_error[l] <- mean((train_pred- train_Hit$Salary)^2)
+}
+
+plot(lambda_vals, train_error, type="b", xlab="Shrinkage values", ylab="Training set MSE")
+```
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**d. Produce a plot with different shrinkage values on the x-axis and the corresponding test set MSE on the y-axis.**
+```{r}
+lambda_vals <- seq(from=0.001, to=1, by=0.05)
+test_error <- rep(NA, length(lambda_vals))
+for (l in 1:length(lambda_vals)) {
+  boost_Hitt <- gbm(Salary~., 
+                  data=train_Hit, 
+                  distribution = "gaussian",
+                  n.trees = 1000,
+                  shrinkage=lambda_vals[l])
+  test_pred <- predict(boost_Hitt, test_Hit, n.trees=1000)
+  test_error[l] <- mean((test_pred - test_Hit$Salary)^2)
+}
+
+
+plot(lambda_vals, test_error, type="b", xlab="Shrinkage values", ylab="Test set MSE")
+
+test_error[which.min(test_error)]
+```
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**e. Compare the test MSE of boosting to the test MSE that results from applying linear regression and LASSO.**
+```{r}
+lm_fit <- lm(Salary ~., data=train_Hit)
+lm_pred <- predict(lm_fit, test_Hit)
+mean((lm_pred - test_Hit$Salary)^2)
+
+x_mat <- model.matrix(Salary ~ ., data=Hitters)[,-1]
+x_train <- x_mat[train, ]
+x_test <- x_mat[test, ]
+y_train <- Hitters$Salary[train]
+y_test <- Hitters$Salary[test]
+ridge_fit <- glmnet(x_train, y_train, alpha=0)
+cv_ridge <- cv.glmnet(x_train, y_train, alpha=0)
+best.lam <- cv_ridge$lambda.min
+
+ridge_pred <- predict(ridge_fit, s=best.lam, newx=x_test)
+mean((ridge_pred - y_test)^2)
+```
+
+boosting < ridge < linear regression
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**f. Which variables appear to be the most important predictors in the boosted model?**
+```{r}
+summary(boost_Hitt)
+```
+
+CAtBat is the most important variable
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+**g. Now apply bagging to the training set. What is the test set MSE for this approach?**
+```{r}
+bag.Hit <- randomForest(Salary ~ .,
+                        data=train_Hit,
+                        mtry=19,
+                        importance=TRUE,
+                        n.trees=1000)
+
+bag.pred <- predict(bag.Hit, newdata=test_Hit)
+mean((bag.pred-y_test)^2)
+```
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br>
+
+# Homework 5
+
+收获与感悟：
+
+在这门课中，我学习了很多机器学习的算法，对监督学习和非监督学习的很多算法有了新的领悟，通过实验我对每个算法的逻辑有了更深层次的理解，我也对许多数据集进行了实操，感觉很有趣。
+
+看法与建议：
+
+考核形式上可能会更倾向于带cheating sheet的半开卷考试，也会减少一些大家死记硬背的内容，感觉我也能更深入的研究和准备每个算法，可能会比论文形式掌握的更牢固。
+
+<br><br>

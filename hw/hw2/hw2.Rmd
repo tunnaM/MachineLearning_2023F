@@ -1,0 +1,141 @@
+---
+title: "Homework 1 Exercise 2 and 3"
+author: "Ma Jingchun, 2020111235"
+output:
+  html_document:
+  pdf_document: 
+    latex_engine: xelatex
+---
+<br><br>
+
+This question should be answered using the Weekly data set, which is part of the ISLR2 package. It contains 1, 089 weekly returns for 21 years, from the beginning of 1990 to the end of 2010.
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+library(ISLR2)
+library(MASS)
+library(class)
+library(e1071)
+```
+
+<br><br>
+
+**1. Produce some numerical and graphical summaries of the Weekly data. Do there appear to be any patterns?**
+```{r}
+summary(Weekly)
+pairs(Weekly)
+```
+
+The correlation between the data is not strong.
+ 'Lags' as well as 'Today' are very similar to each other. 
+ 
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
+**2. Use the full data set to perform a logistic regression with Direction as the response and the five lag variables plus Volume as predictors. Use the summary function to print the results. Do any of the predictors appear to be statistically significant? If so, which ones?**
+```{r}
+glm.fit1 = glm(Direction ~ Lag1 + Lag2 + Lag3 + Lag4 + Lag5 + Volume, data = Weekly, family = binomial)
+summary(glm.fit1)   
+```
+Lag2 is most significant. Because Pr(>|z|) < 0.05, so Lag1, Lag2 and Lag4 are statistically significant compared to others.
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
+**3. Compute the confusion matrix and overall fraction of correct predictions. Explain what the confusion matrix is telling you about the types of mistakes made by logistic regression.**
+```{r}
+glm.probs = predict(glm.fit1, type='response')
+glm.pred = rep("Down", nrow(Weekly)) 
+glm.pred[glm.probs > .5] = "Up"
+table(glm.pred, Weekly$Direction)
+mean(glm.pred == Weekly$Direction)
+430 / (54 + 430)
+48 / (48 + 557)
+```
+overall fraction of correct predictions = (54 + 557) / (54 + 48 + 430 + 557) = 56.1%
+
+false positive rate = 430 / (54 + 430) = 88.8%
+
+false negative rate = 48 / (48 + 557) = 7.9%
+
+So the error should be type 2 error
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
+**4. Now fit the logistic regression model using a training data period from 1990 to 2008, with Lag2 as the only predictor. Compute the confusion matrix and the overall fraction of correct predictions for the held out data (that is, the data from 2009 and 2010).**
+```{r}
+attach(Weekly)
+train = (Year < 2009)
+Weekly.train = Weekly[train,]
+Weekly.test = Weekly[!train,]
+Direction.test = Weekly.test$Direction
+glm.fit2 = glm(Direction~Lag2, data=Weekly, family=binomial, subset=train)
+glm.probs2 = predict(glm.fit2, Weekly.test, type='response')
+glm.pred2 = rep('Up',nrow(Weekly.test))
+glm.pred2[glm.probs2<.5] = 'Down'
+table(glm.pred2, Direction.test)
+mean(glm.pred2 == Direction.test)
+```
+overall fraction of correct predictions = (9 + 56) / (9 + 56 + 5 + 34) = 62.5%
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
+**5. Repeat 4. using LDA.**
+```{r}
+lda.fit = lda(Direction~Lag2, data=Weekly, subset=train)
+lda.pred = predict(lda.fit, Weekly.test)
+lda.class = lda.pred$class
+table(lda.class, Direction.test)
+mean(lda.class == Direction.test)
+```
+overall fraction of correct predictions = (9 + 56) / (9 + 56 + 5 + 34) = 62.5%
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
+**6. Repeat 4. using QDA.**
+```{r}
+qda.fit = qda(Direction~Lag2, data=Weekly, subset=train)
+qda.pred = predict(qda.fit, Weekly.test)
+qda.class = qda.pred$class
+table(qda.class, Direction.test)
+mean(qda.class == Direction.test) 
+```
+overall fraction of correct predictions = 61 / (43 + 61) = 58.6%
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
+**7. Repeat 4. using KNN with K = 1. You can also experiment with values for K in the KNN classifier. (Hint: Use knn() in the class package.)**
+```{r}
+train.X = as.matrix(Weekly$Lag2[train])
+test.X = as.matrix(Weekly$Lag2[!train])
+Direction.train = Weekly$Direction[train]
+set.seed(1)
+knn.pred = knn(train.X, test.X, Direction.train, k=1) 
+table(knn.pred, Direction.test)
+mean(knn.pred == Direction.test)
+```
+overall fraction of correct predictions = (21 + 31) / (21 + 31 + 30 + 22) = 50%
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
+**8. Repeat 4. using naive Bayes.**
+```{r}
+nb.fit <- naiveBayes(Direction~Lag2, data=Weekly, subset=train)
+nb.class = predict(nb.fit, Weekly.test)
+table(nb.class, Direction.test)
+mean(nb.class == Direction.test) 
+```
+overall fraction of correct predictions = 61 / (43 + 61) = 58.6%
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
+**9. Which of these methods appears to provide the best results on this data?**
+
+Logistic regression and linear discriminant analysis give better predictions than others
+
+\bigskip\bigskip\bigskip\bigskip
+<br><br><br><br>
+
