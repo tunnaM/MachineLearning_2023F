@@ -1,0 +1,237 @@
+---
+title: "Lab: 决策树"
+jupyter:
+  jupytext:
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.11.2
+  kernelspec:
+    display_name: R
+    language: R
+    name: ir
+---
+
+# 拟合分类树
+
+
+`tree`包用于构建分类和回归树。
+
+```{r chunk1}
+library(tree)
+```
+
+
+我们首先用分类树来分析`Carseats`数据集。
+在这个数据集中，`Sales`是一个连续变量，所以我们从将其转换为二元变量开始。我们使用`ifelse()`函数来创建一个变量，并将其命名为`High`，如果`Sales`变量超过了$8$，就把它的值赋为`Yes`，否则为`No`。
+
+```{r chunk2}
+library(ISLR2)
+attach(Carseats)
+High <- factor(ifelse(Sales <= 8, "No", "Yes"))
+```
+
+
+最后，我们使用`data.frame()`函数来将`High`与`Carseats`中剩余的数据合并。
+
+```{r chunk3}
+Carseats <- data.frame(Carseats, High)
+```
+
+
+我们现在使用`tree()`函数来拟合一个分类树，从而通过除了`Sales`之外的变量预测`High`。`tree()`函数的语法规则与`lm()`函数非常相似。
+
+```{r chunk4}
+tree.carseats <- tree(High ~ . - Sales, Carseats)
+```
+
+
+`summary()`函数列出了树中用作内部节点的变量、终端节点的数量和（训练）错误率。
+
+```{r chunk5}
+summary(tree.carseats)
+```
+
+
+可以看见训练错误率为$9\%$。
+对于分类树，`summary()`中的输出的偏差为
+\[
+-2 \sum_m \sum_k n_{mk} \log \hat{p}_{mk},
+\]
+其中$n_{mk}$为第$m$个终端节点的属于第$k$个类的观测值的数量。这与熵密切相关。
+一个小的偏差表示一个树对训练数据的拟合效果很好。
+*residual mean deviance*就是偏差除以$n-|{T}_0|$，在这个例子中为除以$400-27=373$。
+
+
+树最吸引人的特性之一是可以用图形显示。我们使用`plot()`函数来展示树的结构，并用`text()`函数来展示节点标签。参数`pretty = 0`使得`R`包括了所有定性预测变量的类别名，而不是简单地展示每个变量的一个字母。
+
+```{r chunk6}
+plot(tree.carseats)
+text(tree.carseats, pretty = 0)
+```
+
+
+对`Sales`影响最大的因素看起来应该是`ShelveLoc` （shelving location），因为第一个分支将`Good`与`Bad`和`Medium`分开了。
+
+
+如果我们只键入树对象的名称，`R`的输出将对应树的每个分支。`R`将展示分类的准则 （例如，`Price < 92.5`），节点中的观测值数量，偏差，节点的总体预测（`Yes`或`No`），以及节点中观测值取`Yes`或`No`的比例。叶节点使用星号表示。
+
+```{r chunk7}
+tree.carseats
+```
+
+
+
+为了正确评估分类树对这些数据的表现，我们必须估计测试误差，而不是简单地计算训练误差。
+
+我们将数据集分为测试集和训练集，利用训练集构建树，使用测试集来评估表现。可以使用`predict()`函数来完成这一目的。
+
+在分类树的情况，参数`type = "class"`使得`R`返回实际的预测类别。这个方法得到的测试集的预测准确率大约为$77\,\%$。
+
+```{r chunk8}
+set.seed(2)
+train <- sample(1:nrow(Carseats), 200)
+Carseats.test <- Carseats[-train, ]
+High.test <- High[-train]
+tree.carseats <- tree(High ~ . - Sales, Carseats, subset = train)
+tree.pred <- predict(tree.carseats, Carseats.test, type = "class")
+table(tree.pred, High.test)
+(104 + 50) / 200
+```
+
+
+（如果重新执行`predict()`，可能得到略有不同的结果，这是因为"ties"：例如，当对应于终端节点的训练观测值在`Yes`和`No`响应值之间均匀地分类时，这种情况就可能发生。）
+
+
+下面，我们考虑是否可以通过剪枝来改善结果。
+函数`cv.tree()`使用交叉验证来确定最优的树的复杂度的水平；使用代价复杂度剪枝来选择一颗子树。
+我们使用参数`FUN = prune.misclass`来表明我们希望使用分类错误率来主导交叉验证和剪枝过程，而不是`cv.tree()`中的默认的偏差。`cv.tree()`函数输出了所考虑的每个树的终端节点的数量（`size`）以及相应的错误率和所使用的代价复杂度的值（`k`，对应代价复杂度剪枝中的$\alpha$）。
+
+```{r chunk9}
+set.seed(7)
+cv.carseats <- cv.tree(tree.carseats, FUN = prune.misclass)
+names(cv.carseats)
+cv.carseats
+```
+
+
+尽管名为`dev`，但它与交叉验证错误的数量相对应。具有9个终端节点的树只产生了74个交叉验证错误。我们将错误率绘制为`size`和`k`的函数。
+
+```{r chunk10}
+par(mfrow = c(1, 2))
+plot(cv.carseats$size, cv.carseats$dev, type = "b")
+plot(cv.carseats$k, cv.carseats$dev, type = "b")
+```
+
+
+我们现在应用`prune.misclass()`函数，以修剪树从而获得九节点树。
+
+```{r chunk11}
+prune.carseats <- prune.misclass(tree.carseats, best = 9)
+plot(prune.carseats)
+text(prune.carseats, pretty = 0)
+```
+
+
+
+这个修剪的树在测试数据集上的表现如何？我们再次使用`predict()`函数。
+
+```{r chunk12}
+tree.pred <- predict(prune.carseats, Carseats.test, type = "class")
+table(tree.pred, High.test)
+(97 + 58) / 200
+```
+
+
+这样$77.5\,\%$的测试观测值被正确地分类，因此，修剪过程不仅产生了一个可解释性更好的树，而且还略微提高了分类精度。
+
+
+如果我们增加`best`的值，我们将获得更大的修剪树，分类精度更低：
+
+```{r chunk13}
+prune.carseats <- prune.misclass(tree.carseats, best = 14)
+plot(prune.carseats)
+text(prune.carseats, pretty = 0)
+tree.pred <- predict(prune.carseats, Carseats.test, type = "class")
+table(tree.pred, High.test)
+(102 + 52) / 200
+```
+
+
+
+
+
+
+# 拟合回归树
+
+
+这里我们对`Boston`数据集拟合回归树。首先，我们创建一个训练集，并用训练集拟合树。
+
+```{r chunk14}
+set.seed(1)
+train <- sample(1:nrow(Boston), nrow(Boston) / 2)
+tree.boston <- tree(medv ~ ., Boston, subset = train)
+summary(tree.boston)
+```
+
+
+注意到`summary()`的输出表明在构建树时只使用了四个变量。在回归树的背景下，偏差仅仅是树的平方误差之和。我们现在绘制树。
+
+
+```{r chunk15}
+plot(tree.boston)
+text(tree.boston, pretty = 0)
+```
+
+
+变量`lstat`衡量的是{lower  socioeconomic status}的人的百分比，而变量`rm`对应的是房间的平均数量。树表明`rm`值更大或者`lstat`值更小对应着更贵的房子。例如，该树预测`rm >= 7.553`的区域，房屋中位数为$45{,}400$。
+
+
+
+<!-- 需要注意，我们可以通过在`tree()`函数中取`control = tree.control(nobs = length(train), mindev = 0)`来拟合一个更大的树。 -->
+
+
+现在我们使用`cv.tree()`函数来看看修剪树是否会提升表现。
+
+```{r chunk16}
+cv.boston <- cv.tree(tree.boston)
+plot(cv.boston$size, cv.boston$dev, type = "b")
+```
+
+
+在这种情况下，通过交叉验证我们选择所考虑的最复杂的树。然而，如果我们想修剪这棵树，我们可以使用`prune.tree()`函数并按如下方式进行，：
+
+```{r chunk17}
+prune.boston <- prune.tree(tree.boston, best = 5)
+plot(prune.boston)
+text(prune.boston, pretty = 0)
+```
+
+
+<!-- 为了与交叉验证结果保持一致，我们使用未经修剪的树对测试集进行预测。 -->
+
+<!-- ```{r chunk18} -->
+<!-- yhat <- predict(tree.boston, newdata = Boston[-train, ]) -->
+<!-- boston.test <- Boston[-train, "medv"] -->
+<!-- plot(yhat, boston.test) -->
+<!-- abline(0, 1) -->
+<!-- mean((yhat - boston.test)^2) -->
+<!-- ``` -->
+
+
+
+<!-- 换句话说，与回归树相关联的测试集MSE为$35.29$。 -->
+<!-- 因此，MSE的平方根约为$5.941$，这表明该模型得出的测试预测值（平均而言）在该地区真实家庭价值中位数的大约$$5{,}941$以内。 -->
+
+
+
+
+
+
+
+
+
+
+

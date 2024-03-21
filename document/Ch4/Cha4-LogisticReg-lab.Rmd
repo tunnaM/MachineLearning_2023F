@@ -1,0 +1,140 @@
+---
+title: "Lab: 逻辑回归"
+author: "李文东"
+date: "最后编译于 `r format(Sys.time(), '%m/%d/%Y')`"
+output:
+  html_document:
+    toc: TRUE
+    toc_float:
+      collapsed: TRUE
+      smooth_scroll: TRUE
+    number_sections: TRUE
+---
+
+
+```{r 全局参数设置, include=FALSE}
+knitr::opts_chunk$set(error=TRUE)
+```
+
+
+
+
+# 数据读取与可视化
+本Lab的代码演示主要以[Dry_Bean_Dataset](https://www.kaggle.com/datasets/muratkokludataset/dry-bean-dataset)数据集为例。使用高分辨率相机拍摄了7种不同风干菜豆的共13611粒的图像，共有16个特征，其中包括12种尺寸和4种形状特征（菜豆的区域，周长，长轴长、短轴长等等）。`Class`代表菜豆的种类。
+
+```{r 读取数据, collapse=TRUE}
+Bean <- read.csv(file = "Dry_Bean_Dataset.csv", header = TRUE)
+dim(Bean)
+
+head(Bean)
+```
+
+为了便于在二维平面可视化，我们选取`MajorAxisLength`和`MinorAxisLength`两个特征。由于是两分类，我们选取`SEKER`和`BARBUNYA`这两个种类，即前3349组数据。绘制散点图观察。
+```{r 数据可视化, collapse=TRUE}
+Bean.Binary <- Bean[1:3349,c("MajorAxisLength","MinorAxisLength","Class")]
+Bean.Binary[Bean.Binary[,3]=="SEKER",3]=0
+Bean.Binary[Bean.Binary[,3]=="BARBUNYA",3]=1
+Bean.Binary[,3] <- as.numeric(Bean.Binary[,3])
+n1 <- sum(Bean.Binary[,3]==0); n2 <- sum(Bean.Binary[,3]==1)
+c(n1,n2)
+
+plot(Bean.Binary[,1],Bean.Binary[,2],col=c(rep("red",n1),rep("blue",n2)),xlab = "MajorAxisLength",ylab = "MinorAxisLength",pch=20)
+legend("topleft",legend=c("0 : SEKER","1 : BARBUNYA"),col=c("red","blue"),pch=20)
+```
+
+# 基于glm()函数实现逻辑回归
+下面我们拟合逻辑回归模型来基于`MajorAxisLength`和`MinorAxisLength`对菜豆的`Class`进行预测。`glm()`函数可以被用来拟合很多种类的广义线性模型（Generalized Linear Model），其中就包括逻辑回归。`glm()`的用法与`lm()`几乎一致，除了我们要输入参数`family = binomial`来告诉`R`去运行逻辑回归而不是其他的广义线性模型。
+
+```{r glm拟合}
+glm.fits <- glm(Class ~ MajorAxisLength + MinorAxisLength, data=Bean.Binary, family = binomial)
+summary(glm.fits)
+coef(glm.fits)
+plot(Bean.Binary[,1],Bean.Binary[,2],col=c(rep("red",n1),rep("blue",n2)),xlab = "MajorAxisLength",ylab = "MinorAxisLength",pch=20)
+legend("topleft",legend=c("0 : SEKER","1 : BARBUNYA"),col=c("red","blue"),pch=20)
+abline(-coef(glm.fits)[1]/coef(glm.fits)[3],-coef(glm.fits)[2]/coef(glm.fits)[3],lwd=2)
+```
+
+`predict()`函数可以被用来在给定特征值的情况下预测菜豆属于`BARBUNYA`的概率。参数`type = "response"`告诉`R`来以$P(Y=1|X)$的形式输出概率。如果没有新的数据集输入到`predict()`当中，函数会默认输出训练数据集对应的概率值。
+
+下面我们打印了前十个训练数据的概率预测值，并给出了它们对应的分类预测值。从下图中我们也可以发现这十个观测离分类边界非常远，这是它们的概率值都很极端的原因。
+
+```{r 预测,collapse=TRUE}
+glm.probs <- predict(glm.fits, type = "response")
+glm.probs[1:10]
+
+glm.labels <- as.numeric(glm.probs>=0.5)
+glm.labels[1:10]
+
+predict(glm.fits, newdata = data.frame(MajorAxisLength = c(290, 350), MinorAxisLength = c(300, 300)), type = "response")
+
+plot(Bean.Binary[,1],Bean.Binary[,2],col=c(rep("red",n1),rep("blue",n2)),xlab = "MajorAxisLength",ylab = "MinorAxisLength",pch=20)
+legend("topleft",legend=c("0 : SEKER","1 : BARBUNYA"),col=c("red","blue"), pch=20)
+abline(-coef(glm.fits)[1]/coef(glm.fits)[3],-coef(glm.fits)[2]/coef(glm.fits)[3], lwd=2)
+points(Bean.Binary[1:10,1],Bean.Binary[1:10,2], pch=3, col="black", lwd=1.5)
+points(c(290, 350),c(300, 300), pch=3, col=c("red","blue"), cex=1.2, lwd=1.5)
+```
+
+基于这些预测，我们可以利用`table()`函数来产生混淆矩阵(confusion matrix)来判断有多少观测被正确或错误分类。通过向`table()`函数输入两个向量，`R`会输出一个二乘二的表格，包括了各种情况下的计数。混淆矩阵的对角元素代表着正确的预测，非对角元素代表着错误的预测。因此我们的模型正确预测了2000个SEKER菜豆和1286个BARBUNYA菜豆。`mean()`函数可以用来计算预测准确率。在这个例子中，逻辑回归准确的预测了98.12%的菜豆。
+```{r 评估,collapse=TRUE}
+True.labels <- Bean.Binary[,3]
+table(glm.labels, True.labels)
+(2000+1286)/3349
+mean(glm.labels == True.labels)
+```
+
+值得注意的是，上面计算的是训练误差(training error)，所以某种程度上来说，并不代表着我们的模型的泛化能力强。如何计算测试误差我们将在后续的章节中介绍。
+
+
+# 梯度下降算法实现逻辑回归
+
+我们首先定义损失函数，方便调用。
+```{r cost funcion}
+cost <- function(x,y,beta){
+  sig <- 1/(1+exp(-x %*% beta))
+  return(-mean(y*log(sig)+(1-y)*log(1-sig)))
+}
+```
+
+
+
+接下来我们编写梯度下降算法来实现线性回归。
+```{r}
+alpha <- 0.05   #learning rate
+
+x <- cbind(1,Bean.Binary[,1],Bean.Binary[,2])
+x[,2:3] <- scale(x[,2:3])
+y <- Bean.Binary[,3]
+beta <- as.matrix(c(0,0.1,-0.15),ncol=1)
+cost.history <- cost(x,y,beta)
+
+tem.beta1 <- beta[1]+alpha*mean(y-1/(1+exp(-x %*% beta)))
+tem.beta2 <- beta[2]+alpha*mean((y-1/(1+exp(-x %*% beta)))*x[,2])
+tem.beta3 <- beta[3]+alpha*mean((y-1/(1+exp(-x %*% beta)))*x[,3])
+beta[1] <- tem.beta1; beta[2] <- tem.beta2; beta[3] <- tem.beta3; 
+cost.history <- c(cost.history,cost(x,y,beta))
+
+for (i in 1:20000) {
+  tem.beta1 <- beta[1]+alpha*mean(y-1/(1+exp(-x %*% beta)))
+  tem.beta2 <- beta[2]+alpha*mean((y-1/(1+exp(-x %*% beta)))*x[,2])
+  tem.beta3 <- beta[3]+alpha*mean((y-1/(1+exp(-x %*% beta)))*x[,3])
+  beta[1] <- tem.beta1; beta[2] <- tem.beta2; beta[3] <- tem.beta3; 
+  cost.history <- c(cost.history,cost(x,y,beta))
+}
+```
+
+下面我们来看一些迭代结束后的结果：
+```{r,collapse=TRUE}
+beta  #最终参数
+cost.history[length(cost.history)] #最终损失函数
+plot(x[,2],x[,3],col=c(rep("red",n1),rep("blue",n2)),xlab = "MajorAxisLength",ylab = "MinorAxisLength",pch=20)
+legend("topleft",legend=c("0 : SEKER","1 : BARBUNYA"),col=c("red","blue"), pch=20)
+abline(-beta[1]/beta[3],-beta[2]/beta[3], lwd=2)
+plot(cost.history)
+```
+
+
+<!-- ## 练习{-} -->
+<!-- <span style="color:blue">除了上面的batch梯度下降算法，尝试编写随机梯度下降和mini-batch梯度下降算法求解上面的线性回归问题，并展示三个梯度下降算法的不同（如迭代次数，参数值，损失函数变化趋势等等）。</span> -->
+
+
+

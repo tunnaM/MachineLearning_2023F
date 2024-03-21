@@ -1,0 +1,184 @@
+---
+title: "Lab: 线性回归"
+author: "李文东"
+date: "最后编译于 `r format(Sys.time(), '%m/%d/%Y')`"
+output:
+  html_document:
+    toc: TRUE
+    toc_float:
+      collapsed: TRUE
+      smooth_scroll: TRUE
+    number_sections: TRUE
+---
+
+
+```{r chunk1, include=FALSE}
+library(MASS)
+knitr::opts_chunk$set(error=TRUE)
+```
+
+
+
+# 一元线性回归
+## 产生模拟数据
+```{r}
+set.seed(2022)
+x <- runif(100,5,10)
+y <- 20+2*x+rnorm(100)
+plot(x,y)
+```
+
+## 最小二乘估计
+我们首先使用`lm()`函数来拟合一元线性回归模型，其中`x`作为特征，`y`作为响应变量。
+
+基本语法是`lm(y~x,data=)`，其中`data`代表了储存两个变量的数据集。若`x`与`y`不在数据集中，则可以直接调用。
+
+```{r}
+lm.fit <- lm(y~x)
+```
+
+我们来看一个特征和响应变量在数据集中的例子：`ISLR2`包中`Boston`数据集中的变量`medv`与`lstat`。下面第一行代码报错，原因是R不知道去哪里找这两个变量。第二行代码正常运行，因为我们告诉了R变量在`Boston`数据集中。
+
+```{r,collapse=TRUE}
+library(ISLR2)
+lm.tem <- lm(medv ~ lstat)
+lm.tem <- lm(medv ~ lstat,data=Boston)
+```
+
+
+回到`lm.fit`。如果我们输入`lm.fit`，一些关于模型的基本信息就会输出。如果需要更加详细的信息，我们可以输入`summary(lm.fit)`，这会给我们提供系数/参数的$p$值与标准误、$R^2$统计量等等。
+
+```{r}
+lm.fit
+summary(lm.fit)
+```
+
+我们可以利用`names()`函数来看看在`lm.fit`模型中存储了哪些信息。
+
+尽管我们可以通过名字提取这些信息，比如`lm.fit$coefficients`，往往更加安全的方式是利用像`coef()`一样的提取函数。
+
+```{r,collapse=TRUE}
+names(lm.fit)
+coef(lm.fit)
+lm.fit$coefficients
+```
+
+函数`predict()`可以用来产生样本内/样本外的预测值/置信区间等等。如果不给定`newdata=`，则会默认输出样本内预测。
+
+```{r predict}
+predict(lm.fit)
+predict(lm.fit,newdata=data.frame(x = c(0,10,100)))
+```
+
+现在我们利用`plot()`和`abline()`函数画出`x`和`y`以及最小二乘回归线。
+
+```{r }
+plot(x,y)
+abline(lm.fit)
+```
+
+`abline()`函数可以用来画任何线，不仅仅是最小二乘回归线。输入`abline(a,b)`可以画出截距项为`a`斜率为`b`的直线。下面我们给出多个画图参数示例。
+
+```{r}
+plot(x,y)
+abline(lm.fit, lwd = 3)
+abline(lm.fit, lwd = 3, col = "red")
+abline(25,1)
+plot(x,y, col = "red")
+plot(x,y, pch = 20)
+plot(x,y, pch = "+")
+plot(1:20, 1:20, pch = 1:20)
+```
+
+## 梯度下降算法
+
+我们首先定义损失函数，方便调用。
+```{r cost funcion}
+cost <- function(x,y,beta){
+  return(sum((y-cbind(1,x) %*% beta)^2)/(2*length(y)))
+}
+```
+
+
+接下来我们编写梯度下降算法来实现线性回归。
+```{r}
+alpha <- 0.01   #learning rate
+n <- length(y)    #training sample size
+
+beta <- matrix(0,2,1) 
+beta[1] <- 0
+beta[2] <- mean(y)/mean(x)
+plot(x,y)
+abline(beta[1],beta[2])
+cost.history <- cost(x,y,beta)
+
+tem.beta1 <- beta[1]+alpha*(1/n)*sum(y-beta[1]-beta[2]*x)
+tem.beta2 <- beta[2]+alpha*(1/n)*sum((y-beta[1]-beta[2]*x)*x)
+beta[1] <- tem.beta1; beta[2] <- tem.beta2
+abline(beta[1],beta[2],col=2)
+cost.history <- c(cost.history,cost(x,y,beta))
+
+index <- 1
+while ( abs(cost.history[index+1]-cost.history[index])>0.000001) {
+  index <- index+1
+  tem.beta1 <- beta[1]+alpha*(1/n)*sum(y-beta[1]-beta[2]*x)
+  tem.beta2 <- beta[2]+alpha*(1/n)*sum((y-beta[1]-beta[2]*x)*x)
+  beta[1] <- tem.beta1; beta[2] <- tem.beta2
+  if (index%%500==0) {
+    abline(beta[1],beta[2])
+  }
+  cost.history <- c(cost.history,cost(x,y,beta))
+}
+```
+如果你掌握了`shiny`包的使用方式，上面的图可以做成动态交互的形式，非常的fancy。
+
+下面我们来看一些迭代结束后的结果：
+```{r,collapse=TRUE}
+index #迭代次数
+beta  #最终参数
+cost.history[length(cost.history)] #最终损失函数
+plot(x,y)
+abline(beta[1],beta[2])
+plot(cost.history)
+```
+
+
+## 练习{-}
+<span style="color:blue">除了上面的batch梯度下降算法，尝试编写随机梯度下降和mini-batch梯度下降算法求解上面的线性回归问题，并展示三个梯度下降算法的不同（如迭代次数，参数值，损失函数变化趋势等等）。</span>
+
+
+
+# 多元线性回归
+
+## 最小二乘估计
+为了实现多元线性回归的最小二乘估计，我们仍然使用`lm()`函数，其语法为`lm(y~x1+x2+x3, data=)`。
+
+这次我们采用一个在`ISLR2`包中的`Boston`实际数据集，其中记录了波士顿506个人口普查街区的`medv`(房屋价值中位数)。我们尝试利用12个特征比如`rm` (平均房间数)、`age` (平均房龄)、和`lstat` (低社会地位房屋比例)来对`medv`进行预测。
+
+```{r}
+library(ISLR2)
+head(Boston)
+lm.fit <- lm(medv ~ lstat + age, data = Boston)
+summary(lm.fit)
+```
+
+`Boston`数据集包含了12个特征，为了使用所有特征构造线性回归，将他们全部打出来会过于繁琐。为此，我们可以使用下面的简单形式：
+```{r}
+lm.fit <- lm(medv ~ ., data = Boston)
+summary(lm.fit)
+```
+
+如果我们想要利用除了某一个特征之外的全部特征构造线性回归呢？例如，在上面的回归模型的输出中，`age`的p值很大，代表其不显著。所以我们可能想要去掉这个特征：
+```{r chunk17}
+lm.fit1 <- lm(medv ~ . - age, data = Boston)
+summary(lm.fit1)
+```
+
+除此之外，`update()`函数也可以使用。
+```{r chunk18}
+lm.fit2 <- update(lm.fit1, ~ . - indus)
+summary(lm.fit2)
+```
+
+多元线性回归的梯度下降算法实现和一元类似，引入一些矩阵运算即可，感兴趣的同学可以自己尝试，我们不再展开。
+

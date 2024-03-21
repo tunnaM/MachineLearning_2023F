@@ -1,0 +1,219 @@
+---
+title: "Lab: 生成学习算法"
+author: "李文东"
+date: "最后编译于 `r format(Sys.time(), '%m/%d/%Y')`"
+output:
+  html_document:
+    toc: TRUE
+    toc_float:
+      collapsed: TRUE
+      smooth_scroll: TRUE
+    number_sections: TRUE
+---
+
+
+```{r 全局参数设置, include=FALSE}
+knitr::opts_chunk$set(error=TRUE)
+```
+
+# 数据读取与可视化
+本Lab的代码演示主要以[Dry_Bean_Dataset](https://www.kaggle.com/datasets/muratkokludataset/dry-bean-dataset)数据集为例。使用高分辨率相机拍摄了7种不同风干菜豆的共13611粒的图像，共有16个特征，其中包括12种尺寸和4种形状特征（菜豆的区域，周长，长轴长、短轴长等等）。`Class`代表菜豆的种类。
+
+```{r 读取数据}
+Bean <- read.csv(file = "Dry_Bean_Dataset.csv", header = TRUE)
+```
+
+为了便于在二维平面可视化，我们选取`MajorAxisLength`和`MinorAxisLength`两个特征。由于是两分类，我们选取`SEKER`和`BARBUNYA`这两个种类，即前3349组数据。绘制散点图观察。
+```{r 数据可视化, collapse=TRUE}
+Bean.Binary <- Bean[1:3349,c("MajorAxisLength","MinorAxisLength","Class")]
+Bean.Binary[Bean.Binary[,3]=="SEKER",3]=0
+Bean.Binary[Bean.Binary[,3]=="BARBUNYA",3]=1
+Bean.Binary[,3] <- as.numeric(Bean.Binary[,3])
+n1 <- sum(Bean.Binary[,3]==0); n2 <- sum(Bean.Binary[,3]==1)
+c(n1,n2)
+
+plot(Bean.Binary[,1],Bean.Binary[,2],col=c(rep("red",n1),rep("blue",n2)),xlab = "MajorAxisLength",ylab = "MinorAxisLength",pch=20)
+legend("topleft",legend=c("0 : SEKER","1 : BARBUNYA"),col=c("red","blue"),pch=20)
+```
+
+
+
+```{r,message=FALSE}
+dim(Bean.Binary)
+pairs(Bean.Binary)
+cor(Bean.Binary)
+library(corrplot)
+M = cor(Bean.Binary)
+corrplot(M, method = 'number')
+```
+
+我们发现，变量之间都存在着较强的正相关性。
+关于corrplot包的更多用法展示请至<https://cran.r-project.org/web/packages/corrplot/vignettes/corrplot-intro.html>。
+
+
+
+
+# 线性判别分析
+我们之前已经学习过，training error rate往往被过分优化——其倾向于低估test error rate。为了更好的评估方法的表现，我们可以使用一部分数据来拟合模型，然后用所拟合的模型检查其对另一部分数据的预测效果如何。这样会得到更加实际的错误率，因为在实际中，我们对模型在一些没见过的数据上的表现真正感兴趣。
+
+为实现这一策略，我们可以利用`sample()`函数来生成训练数据集和测试数据集。
+```{r, collapse=TRUE}
+set.seed(2022)
+index <-  sort(sample(nrow(Bean.Binary), nrow(Bean.Binary)*0.7))
+index[1:10]
+train <- Bean.Binary[index,]
+test <- Bean.Binary[-index,]
+dim(train)
+dim(test)
+```
+
+对象`index`是一个包含$0.7n$个元素的向量，对应着我们训练数据集中的观测下标，可以被用来获取一个矩阵的部分行构成的子矩阵。
+
+例如，`Bean.Binary[index,]`会生成一个全部数据的子矩阵，其中只包含了`index`中的观测。而非`index`中的观测则可以用`Bean.Binary[-index,]`提取。最终我们得到大小分别为2344和1005的训练和测试数据集。
+
+现在，我们对训练数据拟合LDA。在`R`中，这可以通过`MASS`包中的`lda()`函数实现，其用法和`lm()`基本相同。
+
+```{r,message=FALSE}
+library(MASS)
+lda.fit <- lda(Class ~ MajorAxisLength + MinorAxisLength, data = train)
+lda.fit
+```
+
+LDA模型显示，$\hat\phi=0.391$。换言之，39.1%的训练数据来自于BARBUNYA。LDA模型还提供了每一类中特征的平均值，$\hat\mu_k$。
+
+
+通过`predict()`函数可以返回一个有三个元素的列表。第一个元素，`class`，包含了LDA对于类别的预测。第二个元素，`posterior`，是一个n乘2的矩阵, 其中第k列包含了对应观测属于第k类的后验概率。 最后第三个元素，`x`，包含了*linear discriminants*：$0.039\times `Major` + 0.0014 \times `Minor`$。
+
+
+```{r}
+lda.pred <- predict(lda.fit, newdata=test)
+names(lda.pred)
+```
+
+
+我们还可以计算混淆矩阵和整体准确率。
+```{r,collapse=TRUE}
+lda.class <- lda.pred$class
+real.class <- test$Class
+table(lda.class, real.class)
+mean(lda.class == real.class)
+```
+
+
+对后验概率施加0.5的临界值可以让我们复现`lda.pred$class`中的结果。
+```{r,collapse=TRUE}
+sum(lda.pred$posterior[, 2] > 0.5)
+sum(lda.pred$posterior[, 2] <= 0.5)
+```
+
+我们也可以使用除0.5以外的临界值。
+```{r }
+sum(lda.pred$posterior[, 2] > 0.95)
+```
+
+我们可以利用`pROC`包中的`roc()`函数绘制ROC曲线并计算AUC。
+```{r,message=FALSE}
+library(pROC)
+par(pty="s")
+roc(real.class, lda.pred$posterior[, 2], plot=TRUE, legacy.axes=TRUE, col="#377eb8", lwd=2, print.auc=TRUE)
+```
+
+我们可以利用`klaR`包中的`partimat()`函数绘制分类边界。
+```{r}
+library(klaR)
+train$Class <- as.factor(train$Class)
+partimat(Class~ MinorAxisLength + MajorAxisLength, data = train, method = "lda")
+```
+
+
+# 二次判别分析 
+
+二次判别分析的使用方法为`qda()`函数。输出包含组均值。但它不包含线性判别式的系数，因为QDA分类器涉及预测变量的二次函数，而不是线性函数。
+
+```{r}
+qda.fit <- qda(Class ~ MinorAxisLength+MajorAxisLength, data = train)
+qda.fit
+```
+
+
+```{r,collapse=TRUE}
+qda.pred <- predict(qda.fit, newdata=test)
+qda.class <- qda.pred$class
+table(qda.class, real.class)
+mean(qda.class == real.class)
+```
+相较于LDA，QDA的总体测试准确率提高到了98.2%，但从AUC来看并无显著差别。
+
+```{r,message=FALSE}
+par(pty="s")
+roc(real.class, lda.pred$posterior[, 2], plot=TRUE, legacy.axes=TRUE, col="#377eb8", print.auc=TRUE)
+plot.roc(real.class, qda.pred$posterior[, 2], legacy.axes=TRUE, col="#4daf4a", add=TRUE, print.auc=TRUE, print.auc.y=0.4)
+legend("bottomright",legend=c("lda","qda"),col=c("#377eb8","#4daf4a"),lwd=2)
+```
+
+
+```{r}
+partimat(Class~ MinorAxisLength + MajorAxisLength, data = train, method = "qda")
+```
+
+# 朴素贝叶斯
+朴素贝叶斯在`R`中可以由`e1071`包中的`naiveBayes()`函数实现，其语法和`lda()`或`qda()`一致。默认情况下，NB分类器会将每个定量特征用一元正态分布建模。
+
+```{r}
+library(e1071)
+nb.fit <- naiveBayes(Class ~ MajorAxisLength + MinorAxisLength, data = train)
+nb.fit
+```
+
+输出中包括了响应变量的先验分布，以及每一类中每个变量的均值和标准差的估计。例如，对于$y=0$来说，MajorAxisLength的均值估计为251.4817，标准差估计为19.608。
+
+对于NB模型直接调用`predict()`函数，会返回预测分类。从总的预测准确率来说，NB略差于GDA，和LDA相当。
+```{r}
+nb.class <- predict(nb.fit, newdata=test)
+table(nb.class, real.class)
+mean(nb.class == real.class)
+```
+
+使用`predict()`还可以得到每个观测属于每一类的概率。
+```{r}
+nb.pred <- predict(nb.fit, newdata=test, type="raw")
+nb.pred[1:5, ]
+```
+
+
+
+```{r,message=FALSE}
+par(pty="s")
+roc(real.class, lda.pred$posterior[, 2], plot=TRUE, legacy.axes=TRUE, col="#377eb8", print.auc=TRUE)
+plot.roc(real.class, qda.pred$posterior[, 2], legacy.axes=TRUE, col="#4daf4a", add=TRUE, print.auc=TRUE, print.auc.y=0.4)
+plot.roc(real.class, nb.pred[, 2], legacy.axes=TRUE, col="red", add=TRUE, print.auc=TRUE, print.auc.y=0.3)
+legend("bottomright",legend=c("LDA","QDA","NB"),col=c("#377eb8","#4daf4a","red"), lwd=2)
+```
+
+
+```{r}
+partimat(Class~ MinorAxisLength + MajorAxisLength, data = train, method = "naiveBayes")
+```
+
+
+
+# 练习 & 第二次作业
+
+
+This question should be answered using the `Weekly` data set, which is part of the `ISLR2` package. It contains 1, 089 weekly returns for 21 years, from the beginning of 1990 to the end of 2010.
+
+1. Produce some numerical and graphical summaries of the `Weekly` data. Do there appear to be any patterns?
+2. Use the full data set to perform a logistic regression with `Direction` as the response and the five lag variables plus `Volume` as predictors. Use the summary function to print the results. Do any of the predictors appear to be statistically significant? If so, which ones?
+3. Compute the confusion matrix and overall fraction of correct predictions. Explain what the confusion matrix is telling you about the types of mistakes made by logistic regression.
+4. Now fit the logistic regression model using a training data period from 1990 to 2008, with `Lag2` as the only predictor. Compute the confusion matrix and the overall fraction of correct predictions for the held out data (that is, the data from 2009 and 2010).
+5. Repeat 4. using LDA.
+6. Repeat 4. using QDA.
+7. Repeat 4. using KNN with K = 1. You can also experiment with values for K in the KNN classifier. (Hint: Use `knn()` in the `class` package.)
+8. Repeat 4. using naive Bayes.
+9. Which of these methods appears to provide the best results on this data? 
+
+
+**要求**
+
+- 11月11日周五晚24点截止上交，上交pdf文件（一定要pdf，否则无法批改，可以Knit直接生成或html转存）至邮箱：lyfsufe@163.com
+- 务必创建一个新的Rmd文件，不要使用我们的教学文档直接上交作业
